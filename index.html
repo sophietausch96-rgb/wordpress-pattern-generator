@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground + Bot mit Tabs & Auto-Patterns</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>WP Playground + Bot</title>
+  <link rel="stylesheet" href="./style.css" />
+  <!-- Code-Highlighting (dunkles Theme) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs/themes/prism-tomorrow.min.css">
 </head>
 <body>
   <div class="container">
-    <!-- LINKS -->
+    <!-- LINKS: Playground lädt Blueprint und öffnet den Seiten-Editor -->
     <iframe
       class="playground"
       id="wpFrame"
@@ -16,8 +18,9 @@
       title="WordPress Playground">
     </iframe>
 
-    <!-- RECHTS -->
-    <aside class="chatbox">
+    <!-- RECHTS: Bot -->
+    <aside class="chatbox chatbox--dark">
+      <!-- Tabs -->
       <div class="tabs">
         <button class="tab active" data-tab="chat">💬 Chat</button>
         <button class="tab" data-tab="settings">⚙️ Einstellungen</button>
@@ -26,7 +29,14 @@
       <!-- CHAT -->
       <div class="tabcontent active" id="tab-chat">
         <div class="model-info" id="modelInfo">Modell: –</div>
+
         <div id="messages" class="messages"></div>
+
+        <!-- Spinner -->
+        <div id="spinner" class="spinner" aria-hidden="true">
+          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
+        </div>
+
         <form id="chatForm" class="input-row" autocomplete="off">
           <input id="chatInput" placeholder="Beschreibe ein Pattern … (nur Core-Blöcke)" />
           <button id="sendBtn" type="submit">Senden</button>
@@ -42,6 +52,10 @@
       </div>
     </aside>
   </div>
+
+  <!-- Prism fürs Code-Highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-markup.min.js"></script>
 
   <script>
   // ---------- Tabs ----------
@@ -63,11 +77,12 @@
     sendBtn: document.getElementById('sendBtn'),
     messages: document.getElementById('messages'),
     modelInfo: document.getElementById('modelInfo'),
-    frame: document.getElementById('wpFrame')
+    frame: document.getElementById('wpFrame'),
+    spinner: document.getElementById('spinner')
   };
 
+  // Key laden/speichern
   try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
-
   els.saveBtn.addEventListener('click', () => {
     const val = (els.keyInput.value || "").trim();
     if(!val){ alert("Bitte API-Key eintragen (sk-or-…)"); return; }
@@ -75,6 +90,7 @@
     catch(e){ alert("Speichern fehlgeschlagen."); }
   });
 
+  // Nachrichten-Helfer
   function addMsg(role, html){
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + role;
@@ -83,24 +99,48 @@
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  // ---------- Modelle ----------
+  function addCodeBlock(model, html){
+    const pre = document.createElement('pre');
+    const code = document.createElement('code');
+    pre.className = 'code language-markup'; // Prism: markup
+    code.className = 'language-markup';
+    code.textContent = html; // Prism highlightet danach
+    pre.appendChild(code);
+    const wrap = document.createElement('div');
+    wrap.className = 'msg bot';
+    wrap.innerHTML = `<b>Bot (${model}):</b>`;
+    wrap.appendChild(pre);
+    els.messages.appendChild(wrap);
+    Prism.highlightElement(code);
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function setLoading(isLoading){
+    els.spinner.setAttribute('aria-hidden', isLoading ? 'false' : 'true');
+    els.spinner.style.display = isLoading ? 'flex' : 'none';
+    els.sendBtn.disabled = isLoading;
+  }
+
+  // ---------- Modelle (Fallbacks) ----------
   const FREE_MODELS = [
     "deepseek/deepseek-chat-v3-0324:free",
     "deepseek/deepseek-r1:free",
     "mistralai/mistral-7b-instruct:free"
   ];
 
-  const SYSTEM_PROMPT = "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). " +
-    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke.";
+  const SYSTEM_PROMPT =
+    "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). " +
+    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. " +
+    "Beginne mit <!-- wp: und schließe alle Blöcke korrekt.";
 
-  function sanitize(text){
-    return (text||"").replace(/```(?:html)?/gi,"").trim();
-  }
+  function sanitize(text){ return (text||"").replace(/```(?:html)?/gi,"").trim(); }
 
   function ensureGutenberg(html){
     const cleaned = sanitize(html);
     if (cleaned.includes("<!-- wp:")) return cleaned;
-    return `<!-- wp:paragraph --><p>${cleaned||'Leere Antwort'}</p><!-- /wp:paragraph -->`;
+    // Fallback: minimaler Absatz (damit immer etwas registriert wird)
+    const safe = cleaned || "Leere Antwort";
+    return `<!-- wp:paragraph --><p>${safe.replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s]))}</p><!-- /wp:paragraph -->`;
   }
 
   async function callOpenRouterOnce(model, prompt){
@@ -123,49 +163,61 @@
         max_tokens:1200
       })
     });
-    if(!res.ok) throw new Error("OpenRouter: "+res.status);
+    if(!res.ok){
+      const txt = await res.text().catch(()=>String(res.status));
+      throw new Error(`OpenRouter: ${res.status} – ${txt}`);
+    }
     const data=await res.json();
     return sanitize(data.choices?.[0]?.message?.content||"");
   }
 
   async function callWithFallbacks(prompt){
+    let lastErr = null;
     for(const m of FREE_MODELS){
-      els.modelInfo.textContent="Modell: "+m;
-      try { const out=await callOpenRouterOnce(m,prompt); if(out) return {model:m,out}; }
-      catch(e){ console.warn("Fehler bei",m,e); }
+      els.modelInfo.textContent = "Modell: " + m;
+      try {
+        const out = await callOpenRouterOnce(m,prompt);
+        if (out) return {model:m,out};
+      } catch(e){ lastErr = e; }
     }
-    throw new Error("Keine Antwort von Modellen");
+    throw lastErr || new Error("Keine Antwort von freien Modellen.");
   }
 
-  // ---------- WP Playground Kommunikation ----------
-  async function sendPatternToWP(html){
-    return new Promise((resolve,reject)=>{
-      els.frame.contentWindow.postMessage({
-        type:"REST_API_REQUEST",
-        path:"/wp-json/ai-patterns/v1/create",
-        method:"POST",
-        body:{title:"AI Pattern", content:html}
-      },"*");
-      resolve();
-    });
+  // ---------- WP Playground: Pattern per REST registrieren ----------
+  // Der Playground-iframe versteht postMessage-Events und ruft WP intern auf.
+  function sendPatternToWP(html){
+    els.frame.contentWindow.postMessage({
+      type: "REST_API_REQUEST",
+      path: "/wp-json/ai-patterns/v1/create",
+      method: "POST",
+      body: { title: "AI Pattern", content: html }
+    }, "*");
   }
 
-  // ---------- Chat Handler ----------
-  els.form.addEventListener('submit',async e=>{
+  // ---------- Chat Submit ----------
+  els.form.addEventListener('submit', async e=>{
     e.preventDefault();
-    const userText=els.input.value.trim();
+    const userText = els.input.value.trim();
     if(!userText) return;
     addMsg("user","<b>Du:</b> "+userText);
-    els.input.value=""; els.sendBtn.disabled=true;
+    els.input.value="";
+
+    setLoading(true);
     try{
-      const {model,out}=await callWithFallbacks("Erzeuge Gutenberg-Pattern: "+userText);
-      const html=ensureGutenberg(out);
-      addMsg("bot",`<b>Bot (${model}):</b><pre class="code">${html.replace(/</g,"&lt;")}</pre>`);
-      await sendPatternToWP(html);
-      addMsg("info","✅ Pattern automatisch ins WordPress links importiert (Inserter → AI Patterns).");
+      const prompt = "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. " +
+        "Gib NUR serialized Gutenberg-Block-HTML zurück – keine Erklärungen. Wunsch: " + userText;
+
+      const {model, out} = await callWithFallbacks(prompt);
+      const html = ensureGutenberg(out);
+
+      addCodeBlock(model, html);       // hübsch gefärbter Codeblock
+      sendPatternToWP(html);           // automatisch im WP-Playground registrieren
+      addMsg("info","✅ Pattern automatisch importiert (Inserter → <b>AI Patterns</b>).");
     }catch(err){
-      addMsg("error",err.message);
-    }finally{ els.sendBtn.disabled=false; }
+      addMsg("error", err.message);
+    }finally{
+      setLoading(false);
+    }
   });
   </script>
 </body>
