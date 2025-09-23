@@ -23,9 +23,7 @@
         <input id="apiKeyInput" placeholder="OpenRouter API Key (sk-or-...)" type="password" />
         <button id="saveKeyBtn" type="button">Speichern</button>
       </div>
-      <p class="hint">
-        Der API-Key wird nur lokal im Browser (localStorage) gespeichert.
-      </p>
+      <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
 
       <div class="model-info" id="modelInfo">Modell: –</div>
 
@@ -102,7 +100,7 @@
   function ensureGutenberg(html){
     const cleaned = sanitizeLLM(html);
     if (cleaned.includes("<!-- wp:")) return cleaned;
-    // Fallback: baue Minimal-Block daraus
+    // Fallback: Minimal-Block
     const safe = cleaned ? cleaned.replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s])) : "KI-Ausgabe fehlte.";
     return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
   }
@@ -147,8 +145,7 @@
         const out = await callOpenRouterOnce(model, prompt);
         if (out) return { model, out };
       } catch(e){
-        lastErr = e;
-        // weiter zum nächsten Modell
+        lastErr = e; // nächstes Modell probieren
       }
     }
     throw lastErr || new Error("Keine Antwort erhalten.");
@@ -160,7 +157,7 @@
     const userText = els.input.value.trim();
     if(!userText) return;
 
-    // Beispiel-Prompt strenger machen: wir packen deine Eingabe in eine Vorlage
+    // Prompt-Template (macht die Ausgabe robuster)
     const prompt = "Erzeuge ein responsives Gutenberg-Layout. Nutze NUR Core-Blöcke. " +
       "Gib NUR serialized Gutenberg-Block-HTML zurück – keine Erklärungen, kein Markdown. " +
       "Wunsch: " + userText;
@@ -175,7 +172,7 @@
       addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${html.replace(/</g,"&lt;")}</pre>`);
       addCopyButton(html);
       if (!out.includes('<!-- wp:')) {
-        addMsg('warn', '⚠️ Die Antwort war nicht als Gutenberg-HTML formatiert – ich habe einen Paragraph-Block als Fallback gebaut.');
+        addMsg('warn', '⚠️ Die Antwort war nicht als Gutenberg-HTML formatiert – es wurde ein Paragraph-Block als Fallback gebaut.');
       }
     } catch(err){
       addMsg('error', err.message);
