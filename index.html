@@ -1,33 +1,82 @@
-<body class="flex">
-  <iframe src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"></iframe>
-  <div id="chat">
-    <h2>🤖 OpenRouter Bot</h2>
-    <div id="messages"></div>
-    <input id="chatInput" placeholder="Dein Befehl..." />
-    <button id="sendBtn">Senden</button>
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WP Playground + OpenRouter Bot</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <!-- Linke Seite: WordPress Playground -->
+    <iframe
+      class="playground"
+      src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json">
+    </iframe>
+
+    <!-- Rechte Seite: OpenRouter Chat -->
+    <div class="chatbox">
+      <h2>🤖 OpenRouter Bot</h2>
+      <div class="api-key">
+        <input id="apiKeyInput" type="password" placeholder="API-Key hier einfügen..." />
+        <button id="saveKeyBtn">Speichern</button>
+      </div>
+      <div id="messages" class="messages"></div>
+      <div class="input-row">
+        <input id="chatInput" placeholder="Dein Befehl..." />
+        <button id="sendBtn">Senden</button>
+      </div>
+    </div>
   </div>
+
+  <script>
+  const input = document.getElementById('chatInput');
+  const messages = document.getElementById('messages');
+  const apiKeyInput = document.getElementById('apiKeyInput');
+
+  // gespeicherten API-Key laden
+  apiKeyInput.value = localStorage.getItem("openrouter_key") || "";
+
+  document.getElementById('saveKeyBtn').onclick = () => {
+    localStorage.setItem("openrouter_key", apiKeyInput.value.trim());
+    alert("API-Key gespeichert!");
+  };
+
+  document.getElementById('sendBtn').onclick = async () => {
+    const userText = input.value.trim();
+    const apiKey = apiKeyInput.value.trim();
+    if (!userText) return;
+    if (!apiKey) {
+      alert("Bitte OpenRouter API-Key eingeben!");
+      return;
+    }
+
+    messages.innerHTML += `<p class="user"><b>Du:</b> ${userText}</p>`;
+    input.value = "";
+    messages.scrollTop = messages.scrollHeight;
+
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method:"POST",
+        headers:{
+          "Authorization": "Bearer " + apiKey,
+          "Content-Type":"application/json"
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-4o-mini",
+          messages: [{role:"user", content:userText}]
+        })
+      });
+
+      if (!res.ok) throw new Error("API Fehler: " + res.status);
+      const data = await res.json();
+      const reply = data.choices?.[0]?.message?.content || "(keine Antwort)";
+      messages.innerHTML += `<p class="bot"><b>Bot:</b> ${reply}</p>`;
+      messages.scrollTop = messages.scrollHeight;
+    } catch(err) {
+      messages.innerHTML += `<p class="error">⚠️ Fehler: ${err.message}</p>`;
+    }
+  };
+  </script>
 </body>
-<script>
-const input = document.getElementById('chatInput');
-const messages = document.getElementById('messages');
-document.getElementById('sendBtn').onclick = async () => {
-  const userText = input.value;
-  messages.innerHTML += `<p><b>Du:</b> ${userText}</p>`;
-  input.value = "";
-  // API-Call an OpenRouter
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method:"POST",
-    headers:{
-      "Authorization": "Bearer " + localStorage.getItem("openrouter_key"),
-      "Content-Type":"application/json"
-    },
-    body: JSON.stringify({
-      model: "openai/gpt-4o-mini",
-      messages: [{role:"user", content:userText}]
-    })
-  });
-  const data = await res.json();
-  const reply = data.choices?.[0]?.message?.content || "(keine Antwort)";
-  messages.innerHTML += `<p><b>Bot:</b> ${reply}</p>`;
-};
-</script>
+</html>
