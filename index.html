@@ -8,73 +8,99 @@
 </head>
 <body>
   <div class="container">
-    <!-- Linke Seite: WordPress Playground -->
+    <!-- WordPress Playground -->
     <iframe
       class="playground"
-      src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json">
+      src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"
+      title="WordPress Playground">
     </iframe>
 
-    <!-- Rechte Seite: OpenRouter Chat -->
-    <div class="chatbox">
-      <h2>🤖 OpenRouter Bot</h2>
-      <div class="api-key">
-        <input id="apiKeyInput" type="password" placeholder="API-Key hier einfügen..." />
+    <!-- Chatbot -->
+    <aside class="chatbox">
+      <h2>🤖 OpenRouter Bot (Grok 4 Fast – free)</h2>
+      <div class="apikey">
+        <input id="apiKeyInput" placeholder="API Key (sk-or-...)" type="password"/>
         <button id="saveKeyBtn">Speichern</button>
       </div>
       <div id="messages" class="messages"></div>
       <div class="input-row">
-        <input id="chatInput" placeholder="Dein Befehl..." />
+        <input id="chatInput" placeholder="Beschreibe ein Pattern..." />
         <button id="sendBtn">Senden</button>
       </div>
-    </div>
+    </aside>
   </div>
 
   <script>
-  const input = document.getElementById('chatInput');
-  const messages = document.getElementById('messages');
-  const apiKeyInput = document.getElementById('apiKeyInput');
-
-  // gespeicherten API-Key laden
-  apiKeyInput.value = localStorage.getItem("openrouter_key") || "";
-
-  document.getElementById('saveKeyBtn').onclick = () => {
-    localStorage.setItem("openrouter_key", apiKeyInput.value.trim());
-    alert("API-Key gespeichert!");
+  const els = {
+    keyInput: document.getElementById('apiKeyInput'),
+    saveBtn: document.getElementById('saveKeyBtn'),
+    input: document.getElementById('chatInput'),
+    sendBtn: document.getElementById('sendBtn'),
+    messages: document.getElementById('messages')
   };
 
-  document.getElementById('sendBtn').onclick = async () => {
-    const userText = input.value.trim();
-    const apiKey = apiKeyInput.value.trim();
-    if (!userText) return;
-    if (!apiKey) {
-      alert("Bitte OpenRouter API-Key eingeben!");
-      return;
+  // API-Key speichern/lesen
+  els.keyInput.value = localStorage.getItem("openrouter_key") || "";
+  els.saveBtn.onclick = () => {
+    localStorage.setItem("openrouter_key", els.keyInput.value.trim());
+    alert("API Key gespeichert!");
+  };
+
+  function addMsg(role, text) {
+    const p = document.createElement("p");
+    p.className = role;
+    p.innerHTML = (role === "user" ? "<b>Du:</b> " : role === "bot" ? "<b>Bot:</b> " : "⚠️ ") + text;
+    els.messages.appendChild(p);
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  async function sendToOpenRouter(prompt) {
+    const key = (localStorage.getItem("openrouter_key") || "").trim();
+    if (!key) throw new Error("API-Key fehlt");
+
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+        "X-Title": "WP Pattern Generator"
+      },
+      body: JSON.stringify({
+        model: "xai/grok-4-fast:free", // 👈 kostenloses Modell
+        messages: [
+          { role: "system", content: "Du erzeugst ausschließlich gültiges Gutenberg-Block-HTML (serialized blocks). Keine Erklärungen, nur den reinen Block-Code. Nur Core-Blöcke." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.4
+      })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => String(res.status));
+      throw new Error("OpenRouter: " + res.status + " – " + errText);
     }
 
-    messages.innerHTML += `<p class="user"><b>Du:</b> ${userText}</p>`;
-    input.value = "";
-    messages.scrollTop = messages.scrollHeight;
+    const data = await res.json();
+    return (data.choices?.[0]?.message?.content || "").trim();
+  }
+
+  els.sendBtn.onclick = async () => {
+    const userText = els.input.value.trim();
+    if (!userText) return;
+    addMsg("user", userText);
+    els.input.value = "";
+    els.sendBtn.disabled = true;
 
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method:"POST",
-        headers:{
-          "Authorization": "Bearer " + apiKey,
-          "Content-Type":"application/json"
-        },
-        body: JSON.stringify({
-          model: "openai/gpt-4o-mini",
-          messages: [{role:"user", content:userText}]
-        })
-      });
-
-      if (!res.ok) throw new Error("API Fehler: " + res.status);
-      const data = await res.json();
-      const reply = data.choices?.[0]?.message?.content || "(keine Antwort)";
-      messages.innerHTML += `<p class="bot"><b>Bot:</b> ${reply}</p>`;
-      messages.scrollTop = messages.scrollHeight;
-    } catch(err) {
-      messages.innerHTML += `<p class="error">⚠️ Fehler: ${err.message}</p>`;
+      const reply = await sendToOpenRouter(userText);
+      addMsg("bot", reply || "(keine Antwort)");
+      if (!reply.includes("<!-- wp:")) {
+        addMsg("error", "Antwort enthält kein Gutenberg-Block-HTML.");
+      }
+    } catch (err) {
+      addMsg("error", err.message);
+    } finally {
+      els.sendBtn.disabled = false;
     }
   };
   </script>
