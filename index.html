@@ -1,18 +1,33 @@
-<!doctype html>
-<html lang="de">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground – AI Pattern Builder</title>
-  <style>
-    html,body,iframe { height:100%; margin:0; }
-    iframe { width:100%; border:0; }
-  </style>
-</head>
-<body>
-  <!-- Passe blueprint-url unten auf deine blueprint.json-Roh-URL (z. B. GitHub Pages) an -->
-  <iframe
-    src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json">
-  </iframe>
+<body class="flex">
+  <iframe src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"></iframe>
+  <div id="chat">
+    <h2>🤖 OpenRouter Bot</h2>
+    <div id="messages"></div>
+    <input id="chatInput" placeholder="Dein Befehl..." />
+    <button id="sendBtn">Senden</button>
+  </div>
 </body>
-</html>
+<script>
+const input = document.getElementById('chatInput');
+const messages = document.getElementById('messages');
+document.getElementById('sendBtn').onclick = async () => {
+  const userText = input.value;
+  messages.innerHTML += `<p><b>Du:</b> ${userText}</p>`;
+  input.value = "";
+  // API-Call an OpenRouter
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method:"POST",
+    headers:{
+      "Authorization": "Bearer " + localStorage.getItem("openrouter_key"),
+      "Content-Type":"application/json"
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-4o-mini",
+      messages: [{role:"user", content:userText}]
+    })
+  });
+  const data = await res.json();
+  const reply = data.choices?.[0]?.message?.content || "(keine Antwort)";
+  messages.innerHTML += `<p><b>Bot:</b> ${reply}</p>`;
+};
+</script>
