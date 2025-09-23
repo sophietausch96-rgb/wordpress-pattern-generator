@@ -3,39 +3,58 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Patter Generator</title>
+  <title>WP Playground + Bot mit Tabs & Auto-Patterns</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="container">
-    <!-- LINKS: WordPress Playground – direkt neue Seite im Gutenberg-Editor -->
+    <!-- LINKS -->
     <iframe
       class="playground"
+      id="wpFrame"
       src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"
       title="WordPress Playground">
     </iframe>
 
-    <!-- RECHTS: Chat -->
+    <!-- RECHTS -->
     <aside class="chatbox">
-      <h2>Pattern Generator</h2>
-
-      <div class="apikey">
-        <input id="apiKeyInput" placeholder="OpenRouter API Key (sk-or-...)" type="password" />
-        <button id="saveKeyBtn" type="button">Speichern</button>
+      <div class="tabs">
+        <button class="tab active" data-tab="chat">💬 Chat</button>
+        <button class="tab" data-tab="settings">⚙️ Einstellungen</button>
       </div>
-      <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
 
-      <div id="messages" class="messages" aria-live="polite"></div>
+      <!-- CHAT -->
+      <div class="tabcontent active" id="tab-chat">
+        <div class="model-info" id="modelInfo">Modell: –</div>
+        <div id="messages" class="messages"></div>
+        <form id="chatForm" class="input-row" autocomplete="off">
+          <input id="chatInput" placeholder="Beschreibe ein Pattern … (nur Core-Blöcke)" />
+          <button id="sendBtn" type="submit">Senden</button>
+        </form>
+      </div>
 
-      <form id="chatForm" class="input-row" autocomplete="off">
-        <input id="chatInput" placeholder="Beschreibe ein Pattern (nur Core-Blöcke) …" />
-        <button id="sendBtn" type="submit">Senden</button>
-      </form>
+      <!-- EINSTELLUNGEN -->
+      <div class="tabcontent" id="tab-settings">
+        <h3>API-Key speichern</h3>
+        <input id="apiKeyInput" type="password" placeholder="OpenRouter API Key (sk-or-…)" />
+        <button id="saveKeyBtn" type="button">Speichern</button>
+        <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
+      </div>
     </aside>
   </div>
 
   <script>
-  // ---------- UI ----------
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
+      document.querySelectorAll('.tabcontent').forEach(tc=>tc.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // ---------- UI refs ----------
   const els = {
     keyInput: document.getElementById('apiKeyInput'),
     saveBtn: document.getElementById('saveKeyBtn'),
@@ -43,16 +62,17 @@
     input: document.getElementById('chatInput'),
     sendBtn: document.getElementById('sendBtn'),
     messages: document.getElementById('messages'),
-    modelInfo: document.getElementById('modelInfo')
+    modelInfo: document.getElementById('modelInfo'),
+    frame: document.getElementById('wpFrame')
   };
 
   try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
 
   els.saveBtn.addEventListener('click', () => {
     const val = (els.keyInput.value || "").trim();
-    if(!val) { alert("Bitte API-Key eintragen (sk-or-…)"); return; }
+    if(!val){ alert("Bitte API-Key eintragen (sk-or-…)"); return; }
     try { localStorage.setItem("openrouter_key", val); alert("API-Key gespeichert!"); }
-    catch(e){ alert("Konnte den Key nicht speichern."); }
+    catch(e){ alert("Speichern fehlgeschlagen."); }
   });
 
   function addMsg(role, html){
@@ -63,22 +83,7 @@
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  function addCopyButton(textToCopy){
-    const box = document.createElement('div');
-    box.className = 'copy-row';
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = 'In Zwischenablage kopieren';
-    btn.onclick = async () => {
-      try { await navigator.clipboard.writeText(textToCopy); btn.textContent = 'Kopiert ✅'; }
-      catch(e){ btn.textContent = 'Konnte nicht kopieren'; }
-    };
-    box.appendChild(btn);
-    els.messages.appendChild(box);
-    els.messages.scrollTop = els.messages.scrollHeight;
-  }
-
-  // ---------- OpenRouter Call mit Fallbacks ----------
+  // ---------- Modelle ----------
   const FREE_MODELS = [
     "deepseek/deepseek-chat-v3-0324:free",
     "deepseek/deepseek-r1:free",
@@ -86,97 +91,81 @@
   ];
 
   const SYSTEM_PROMPT = "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). " +
-    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. " +
-    "Beginne mit <!-- wp: und schließe alle Blöcke korrekt.";
+    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke.";
 
-  function sanitizeLLM(text){
-    if(!text) return "";
-    // entferne ``` und ```html fences
-    return text.replace(/```(?:html)?/gi, "").trim();
+  function sanitize(text){
+    return (text||"").replace(/```(?:html)?/gi,"").trim();
   }
 
   function ensureGutenberg(html){
-    const cleaned = sanitizeLLM(html);
+    const cleaned = sanitize(html);
     if (cleaned.includes("<!-- wp:")) return cleaned;
-    // Fallback: Minimal-Block
-    const safe = cleaned ? cleaned.replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s])) : "KI-Ausgabe fehlte.";
-    return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
+    return `<!-- wp:paragraph --><p>${cleaned||'Leere Antwort'}</p><!-- /wp:paragraph -->`;
   }
 
   async function callOpenRouterOnce(model, prompt){
-    const key = (localStorage.getItem('openrouter_key') || '').trim();
-    if(!key) throw new Error('API-Key fehlt. Bitte rechts oben speichern.');
-
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + key,
-        'Content-Type': 'application/json',
-        'X-Title': 'WP Pattern Generator'
+    const key = (localStorage.getItem('openrouter_key')||'').trim();
+    if(!key) throw new Error("API-Key fehlt");
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
+      method:"POST",
+      headers:{
+        "Authorization":"Bearer "+key,
+        "Content-Type":"application/json",
+        "X-Title":"WP Pattern Generator"
       },
-      body: JSON.stringify({
+      body:JSON.stringify({
         model,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: prompt }
+        messages:[
+          {role:"system",content:SYSTEM_PROMPT},
+          {role:"user",content:prompt}
         ],
-        temperature: 0.3,
-        max_tokens: 1200,
-        top_p: 0.9
+        temperature:0.3,
+        max_tokens:1200
       })
     });
-
-    if(!res.ok){
-      const txt = await res.text().catch(()=>String(res.status));
-      throw new Error(`OpenRouter: ${res.status} – ${txt}`);
-    }
-    const data = await res.json();
-    const raw = (data.choices?.[0]?.message?.content || "").trim();
-    return sanitizeLLM(raw);
+    if(!res.ok) throw new Error("OpenRouter: "+res.status);
+    const data=await res.json();
+    return sanitize(data.choices?.[0]?.message?.content||"");
   }
 
   async function callWithFallbacks(prompt){
-    let lastErr = null;
-    for(const model of FREE_MODELS){
-      els.modelInfo.textContent = "Modell: " + model;
-      try {
-        const out = await callOpenRouterOnce(model, prompt);
-        if (out) return { model, out };
-      } catch(e){
-        lastErr = e; // nächstes Modell probieren
-      }
+    for(const m of FREE_MODELS){
+      els.modelInfo.textContent="Modell: "+m;
+      try { const out=await callOpenRouterOnce(m,prompt); if(out) return {model:m,out}; }
+      catch(e){ console.warn("Fehler bei",m,e); }
     }
-    throw lastErr || new Error("Keine Antwort erhalten.");
+    throw new Error("Keine Antwort von Modellen");
   }
 
-  // ---------- Form-Handler ----------
-  els.form.addEventListener('submit', async (e) => {
+  // ---------- WP Playground Kommunikation ----------
+  async function sendPatternToWP(html){
+    return new Promise((resolve,reject)=>{
+      els.frame.contentWindow.postMessage({
+        type:"REST_API_REQUEST",
+        path:"/wp-json/ai-patterns/v1/create",
+        method:"POST",
+        body:{title:"AI Pattern", content:html}
+      },"*");
+      resolve();
+    });
+  }
+
+  // ---------- Chat Handler ----------
+  els.form.addEventListener('submit',async e=>{
     e.preventDefault();
-    const userText = els.input.value.trim();
+    const userText=els.input.value.trim();
     if(!userText) return;
-
-    // Prompt-Template (macht die Ausgabe robuster)
-    const prompt = "Erzeuge ein responsives Gutenberg-Layout. Nutze NUR Core-Blöcke. " +
-      "Gib NUR serialized Gutenberg-Block-HTML zurück – keine Erklärungen, kein Markdown. " +
-      "Wunsch: " + userText;
-
-    addMsg('user', `<b>Du:</b> ${userText}`);
-    els.input.value = '';
-    els.sendBtn.disabled = true;
-
-    try {
-      const { model, out } = await callWithFallbacks(prompt);
-      const html = ensureGutenberg(out);
-      addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${html.replace(/</g,"&lt;")}</pre>`);
-      addCopyButton(html);
-      if (!out.includes('<!-- wp:')) {
-        addMsg('warn', '⚠️ Die Antwort war nicht als Gutenberg-HTML formatiert – es wurde ein Paragraph-Block als Fallback gebaut.');
-      }
-    } catch(err){
-      addMsg('error', err.message);
-    } finally {
-      els.sendBtn.disabled = false;
-    }
+    addMsg("user","<b>Du:</b> "+userText);
+    els.input.value=""; els.sendBtn.disabled=true;
+    try{
+      const {model,out}=await callWithFallbacks("Erzeuge Gutenberg-Pattern: "+userText);
+      const html=ensureGutenberg(out);
+      addMsg("bot",`<b>Bot (${model}):</b><pre class="code">${html.replace(/</g,"&lt;")}</pre>`);
+      await sendPatternToWP(html);
+      addMsg("info","✅ Pattern automatisch ins WordPress links importiert (Inserter → AI Patterns).");
+    }catch(err){
+      addMsg("error",err.message);
+    }finally{ els.sendBtn.disabled=false; }
   });
   </script>
 </body>
