@@ -3,106 +3,116 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground + OpenRouter Bot</title>
+  <title>WP Playground + OpenRouter Bot (DeepSeek v3 Free)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="container">
-    <!-- WordPress Playground -->
+    <!-- LINKS: WordPress Playground – direkt neue Seite im Gutenberg-Editor -->
     <iframe
       class="playground"
       src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"
       title="WordPress Playground">
     </iframe>
 
-    <!-- Chatbot -->
+    <!-- RECHTS: OpenRouter Chat -->
     <aside class="chatbox">
-      <h2>🤖 OpenRouter Bot (Grok 4 Fast – free)</h2>
+      <h2>🤖 OpenRouter Bot (DeepSeek v3 – free)</h2>
+
       <div class="apikey">
-        <input id="apiKeyInput" placeholder="API Key (sk-or-...)" type="password"/>
-        <button id="saveKeyBtn">Speichern</button>
+        <input id="apiKeyInput" placeholder="OpenRouter API Key (sk-or-...)" type="password" />
+        <button id="saveKeyBtn" type="button">Speichern</button>
       </div>
-      <div id="messages" class="messages"></div>
-      <div class="input-row">
-        <input id="chatInput" placeholder="Beschreibe ein Pattern..." />
-        <button id="sendBtn">Senden</button>
-      </div>
+      <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
+
+      <div id="messages" class="messages" aria-live="polite"></div>
+
+      <form id="chatForm" class="input-row" autocomplete="off">
+        <input id="chatInput" placeholder="Beschreibe ein Pattern (nur Core-Blöcke) …" />
+        <button id="sendBtn" type="submit">Senden</button>
+      </form>
     </aside>
   </div>
 
   <script>
+  // UI-Refs
   const els = {
     keyInput: document.getElementById('apiKeyInput'),
     saveBtn: document.getElementById('saveKeyBtn'),
+    form: document.getElementById('chatForm'),
     input: document.getElementById('chatInput'),
     sendBtn: document.getElementById('sendBtn'),
     messages: document.getElementById('messages')
   };
 
-  // API-Key speichern/lesen
-  els.keyInput.value = localStorage.getItem("openrouter_key") || "";
-  els.saveBtn.onclick = () => {
-    localStorage.setItem("openrouter_key", els.keyInput.value.trim());
-    alert("API Key gespeichert!");
-  };
+  // Key laden
+  try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
 
-  function addMsg(role, text) {
-    const p = document.createElement("p");
+  // Key speichern
+  els.saveBtn.addEventListener('click', () => {
+    const val = (els.keyInput.value || "").trim();
+    if(!val) { alert("Bitte API-Key eintragen (sk-or-...)"); return; }
+    try { localStorage.setItem("openrouter_key", val); alert("API-Key gespeichert!"); } catch(e){ alert("Konnte den Key nicht speichern."); }
+  });
+
+  function addMsg(role, text){
+    const p = document.createElement('p');
     p.className = role;
-    p.innerHTML = (role === "user" ? "<b>Du:</b> " : role === "bot" ? "<b>Bot:</b> " : "⚠️ ") + text;
+    p.innerHTML = (role === 'user' ? '<b>Du:</b> ' : role === 'bot' ? '<b>Bot:</b> ' : '⚠️ ') + text;
     els.messages.appendChild(p);
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  async function sendToOpenRouter(prompt) {
-    const key = (localStorage.getItem("openrouter_key") || "").trim();
-    if (!key) throw new Error("API-Key fehlt");
+  async function sendToOpenRouter(prompt){
+    const key = (localStorage.getItem('openrouter_key') || '').trim();
+    if(!key) throw new Error('API-Key fehlt. Bitte rechts oben speichern.');
 
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
       headers: {
-        "Authorization": "Bearer " + key,
-        "Content-Type": "application/json",
-        "X-Title": "WP Pattern Generator"
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+        'X-Title': 'WP Pattern Generator'
       },
       body: JSON.stringify({
-        model: "xai/grok-4-fast:free", // 👈 kostenloses Modell
+        model: 'deepseek/deepseek-chat-v3-0324:free',
         messages: [
-          { role: "system", content: "Du erzeugst ausschließlich gültiges Gutenberg-Block-HTML (serialized blocks). Keine Erklärungen, nur den reinen Block-Code. Nur Core-Blöcke." },
-          { role: "user", content: prompt }
+          { role: 'system', content: 'Du erzeugst ausschließlich gültiges Gutenberg-Block-HTML (serialized blocks). Keine Erklärungen, nur reinen Block-Code. Nutze nur Core-Blöcke.' },
+          { role: 'user', content: prompt }
         ],
         temperature: 0.4
       })
     });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => String(res.status));
-      throw new Error("OpenRouter: " + res.status + " – " + errText);
+    if(!res.ok){
+      const txt = await res.text().catch(()=>String(res.status));
+      throw new Error('OpenRouter: ' + res.status + ' – ' + txt);
     }
 
     const data = await res.json();
-    return (data.choices?.[0]?.message?.content || "").trim();
+    return (data.choices?.[0]?.message?.content || '').trim();
   }
 
-  els.sendBtn.onclick = async () => {
+  els.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
     const userText = els.input.value.trim();
-    if (!userText) return;
-    addMsg("user", userText);
-    els.input.value = "";
+    if(!userText) return;
+    addMsg('user', userText);
+    els.input.value = '';
     els.sendBtn.disabled = true;
 
     try {
       const reply = await sendToOpenRouter(userText);
-      addMsg("bot", reply || "(keine Antwort)");
-      if (!reply.includes("<!-- wp:")) {
-        addMsg("error", "Antwort enthält kein Gutenberg-Block-HTML.");
+      addMsg('bot', reply || '(keine Antwort)');
+      if (!reply.includes('<!-- wp:')) {
+        addMsg('error', 'Antwort enthält kein Gutenberg-Block-HTML. Formuliere deinen Prompt strenger (nur Core-Blöcke, keine Erklärungen).');
       }
-    } catch (err) {
-      addMsg("error", err.message);
+    } catch(err){
+      addMsg('error', err.message);
     } finally {
       els.sendBtn.disabled = false;
     }
-  };
+  });
   </script>
 </body>
 </html>
