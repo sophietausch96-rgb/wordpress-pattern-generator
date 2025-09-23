@@ -32,6 +32,27 @@ html, body {
   font-size: 1rem;
 }
 
+.api-key {
+  display: flex;
+  padding: 8px;
+  gap: 5px;
+  border-bottom: 1px solid #ddd;
+}
+
+.api-key input {
+  flex: 1;
+  padding: 6px;
+}
+
+.api-key button {
+  padding: 6px 12px;
+  border: none;
+  background: #007acc;
+  color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 .messages {
   flex: 1;
   overflow-y: auto;
@@ -48,7 +69,6 @@ html, body {
 
 .messages p.user {
   background: #e0f7fa;
-  align-self: flex-end;
 }
 
 .messages p.bot {
