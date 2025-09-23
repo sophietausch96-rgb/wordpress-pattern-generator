@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground + OpenRouter Bot (DeepSeek v3 Free)</title>
+  <title>WP Playground + OpenRouter Bot (Free Fallbacks)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -15,15 +15,19 @@
       title="WordPress Playground">
     </iframe>
 
-    <!-- RECHTS: OpenRouter Chat -->
+    <!-- RECHTS: Chat -->
     <aside class="chatbox">
-      <h2>🤖 OpenRouter Bot (DeepSeek v3 – free)</h2>
+      <h2>🤖 OpenRouter Bot (Free Modelle)</h2>
 
       <div class="apikey">
         <input id="apiKeyInput" placeholder="OpenRouter API Key (sk-or-...)" type="password" />
         <button id="saveKeyBtn" type="button">Speichern</button>
       </div>
-      <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
+      <p class="hint">
+        Der API-Key wird nur lokal im Browser (localStorage) gespeichert.
+      </p>
+
+      <div class="model-info" id="modelInfo">Modell: –</div>
 
       <div id="messages" class="messages" aria-live="polite"></div>
 
@@ -35,35 +39,75 @@
   </div>
 
   <script>
-  // UI-Refs
+  // ---------- UI ----------
   const els = {
     keyInput: document.getElementById('apiKeyInput'),
     saveBtn: document.getElementById('saveKeyBtn'),
     form: document.getElementById('chatForm'),
     input: document.getElementById('chatInput'),
     sendBtn: document.getElementById('sendBtn'),
-    messages: document.getElementById('messages')
+    messages: document.getElementById('messages'),
+    modelInfo: document.getElementById('modelInfo')
   };
 
-  // Key laden
   try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
 
-  // Key speichern
   els.saveBtn.addEventListener('click', () => {
     const val = (els.keyInput.value || "").trim();
-    if(!val) { alert("Bitte API-Key eintragen (sk-or-...)"); return; }
-    try { localStorage.setItem("openrouter_key", val); alert("API-Key gespeichert!"); } catch(e){ alert("Konnte den Key nicht speichern."); }
+    if(!val) { alert("Bitte API-Key eintragen (sk-or-…)"); return; }
+    try { localStorage.setItem("openrouter_key", val); alert("API-Key gespeichert!"); }
+    catch(e){ alert("Konnte den Key nicht speichern."); }
   });
 
-  function addMsg(role, text){
-    const p = document.createElement('p');
-    p.className = role;
-    p.innerHTML = (role === 'user' ? '<b>Du:</b> ' : role === 'bot' ? '<b>Bot:</b> ' : '⚠️ ') + text;
-    els.messages.appendChild(p);
+  function addMsg(role, html){
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ' + role;
+    wrap.innerHTML = html;
+    els.messages.appendChild(wrap);
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  async function sendToOpenRouter(prompt){
+  function addCopyButton(textToCopy){
+    const box = document.createElement('div');
+    box.className = 'copy-row';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'In Zwischenablage kopieren';
+    btn.onclick = async () => {
+      try { await navigator.clipboard.writeText(textToCopy); btn.textContent = 'Kopiert ✅'; }
+      catch(e){ btn.textContent = 'Konnte nicht kopieren'; }
+    };
+    box.appendChild(btn);
+    els.messages.appendChild(box);
+    els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  // ---------- OpenRouter Call mit Fallbacks ----------
+  const FREE_MODELS = [
+    "deepseek/deepseek-chat-v3-0324:free",
+    "deepseek/deepseek-r1:free",
+    "mistralai/mistral-7b-instruct:free"
+  ];
+
+  const SYSTEM_PROMPT = "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). " +
+    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. " +
+    "Beginne mit <!-- wp: und schließe alle Blöcke korrekt.";
+
+  function sanitizeLLM(text){
+    if(!text) return "";
+    // entferne ``` und ```html fences
+    return text.replace(/```(?:html)?/gi, "").trim();
+  }
+
+  function ensureGutenberg(html){
+    const cleaned = sanitizeLLM(html);
+    if (cleaned.includes("<!-- wp:")) return cleaned;
+    // Fallback: baue Minimal-Block daraus
+    const safe = cleaned ? cleaned.replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s])) : "KI-Ausgabe fehlte.";
+    return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
+  }
+
+  async function callOpenRouterOnce(model, prompt){
     const key = (localStorage.getItem('openrouter_key') || '').trim();
     if(!key) throw new Error('API-Key fehlt. Bitte rechts oben speichern.');
 
@@ -75,37 +119,63 @@
         'X-Title': 'WP Pattern Generator'
       },
       body: JSON.stringify({
-     model: "mistralai/mistral-7b-instruct:free",
+        model,
         messages: [
-          { role: 'system', content: 'Du erzeugst ausschließlich gültiges Gutenberg-Block-HTML (serialized blocks). Keine Erklärungen, nur reinen Block-Code. Nutze nur Core-Blöcke.' },
+          { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: prompt }
         ],
-        temperature: 0.4
+        temperature: 0.3,
+        max_tokens: 1200,
+        top_p: 0.9
       })
     });
 
     if(!res.ok){
       const txt = await res.text().catch(()=>String(res.status));
-      throw new Error('OpenRouter: ' + res.status + ' – ' + txt);
+      throw new Error(`OpenRouter: ${res.status} – ${txt}`);
     }
-
     const data = await res.json();
-    return (data.choices?.[0]?.message?.content || '').trim();
+    const raw = (data.choices?.[0]?.message?.content || "").trim();
+    return sanitizeLLM(raw);
   }
 
+  async function callWithFallbacks(prompt){
+    let lastErr = null;
+    for(const model of FREE_MODELS){
+      els.modelInfo.textContent = "Modell: " + model;
+      try {
+        const out = await callOpenRouterOnce(model, prompt);
+        if (out) return { model, out };
+      } catch(e){
+        lastErr = e;
+        // weiter zum nächsten Modell
+      }
+    }
+    throw lastErr || new Error("Keine Antwort erhalten.");
+  }
+
+  // ---------- Form-Handler ----------
   els.form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const userText = els.input.value.trim();
     if(!userText) return;
-    addMsg('user', userText);
+
+    // Beispiel-Prompt strenger machen: wir packen deine Eingabe in eine Vorlage
+    const prompt = "Erzeuge ein responsives Gutenberg-Layout. Nutze NUR Core-Blöcke. " +
+      "Gib NUR serialized Gutenberg-Block-HTML zurück – keine Erklärungen, kein Markdown. " +
+      "Wunsch: " + userText;
+
+    addMsg('user', `<b>Du:</b> ${userText}`);
     els.input.value = '';
     els.sendBtn.disabled = true;
 
     try {
-      const reply = await sendToOpenRouter(userText);
-      addMsg('bot', reply || '(keine Antwort)');
-      if (!reply.includes('<!-- wp:')) {
-        addMsg('error', 'Antwort enthält kein Gutenberg-Block-HTML. Formuliere deinen Prompt strenger (nur Core-Blöcke, keine Erklärungen).');
+      const { model, out } = await callWithFallbacks(prompt);
+      const html = ensureGutenberg(out);
+      addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${html.replace(/</g,"&lt;")}</pre>`);
+      addCopyButton(html);
+      if (!out.includes('<!-- wp:')) {
+        addMsg('warn', '⚠️ Die Antwort war nicht als Gutenberg-HTML formatiert – ich habe einen Paragraph-Block als Fallback gebaut.');
       }
     } catch(err){
       addMsg('error', err.message);
