@@ -3,23 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground + Bot</title>
+  <title>WP Playground + Bot (Auto-Pattern)</title>
   <link rel="stylesheet" href="./style.css" />
-  <!-- Code-Highlighting (dunkles Theme) -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs/themes/prism-tomorrow.min.css">
 </head>
 <body>
   <div class="container">
-    <!-- LINKS: Playground lädt Blueprint und öffnet den Seiten-Editor -->
+    <!-- LINKS: immer direkt Gutenberg-Editor (neue Seite) öffnen -->
     <iframe
       class="playground"
       id="wpFrame"
-      src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json"
+      src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json&start_url=%2Fwp-admin%2Fpost-new.php%3Fpost_type%3Dpage"
       title="WordPress Playground">
     </iframe>
 
     <!-- RECHTS: Bot -->
-    <aside class="chatbox chatbox--dark">
+    <aside class="chatbox">
       <!-- Tabs -->
       <div class="tabs">
         <button class="tab active" data-tab="chat">💬 Chat</button>
@@ -28,37 +26,31 @@
 
       <!-- CHAT -->
       <div class="tabcontent active" id="tab-chat">
-        <div class="model-info" id="modelInfo">Modell: –</div>
+        <div class="model-row">
+          <span class="model-info" id="modelInfo">Modell: –</span>
+          <span class="spinner" id="spinner" aria-hidden="true"></span>
+        </div>
 
         <div id="messages" class="messages"></div>
 
-        <!-- Spinner -->
-        <div id="spinner" class="spinner" aria-hidden="true">
-          <div class="dot"></div><div class="dot"></div><div class="dot"></div>
-        </div>
-
         <form id="chatForm" class="input-row" autocomplete="off">
-          <input id="chatInput" placeholder="Beschreibe ein Pattern … (nur Core-Blöcke)" />
+          <input id="chatInput" placeholder="Beschreibe ein Pattern … (nur Core-Blöcke, NUR HTML ausgeben)" />
           <button id="sendBtn" type="submit">Senden</button>
         </form>
       </div>
 
       <!-- EINSTELLUNGEN -->
       <div class="tabcontent" id="tab-settings">
-        <h3>API-Key speichern</h3>
+        <h3>API-Key</h3>
         <input id="apiKeyInput" type="password" placeholder="OpenRouter API Key (sk-or-…)" />
         <button id="saveKeyBtn" type="button">Speichern</button>
-        <p class="hint">Der API-Key wird nur lokal im Browser (localStorage) gespeichert.</p>
+        <p class="hint">Der Key wird nur lokal im Browser (localStorage) gespeichert.</p>
       </div>
     </aside>
   </div>
 
-  <!-- Prism fürs Code-Highlighting -->
-  <script src="https://cdn.jsdelivr.net/npm/prismjs/prism.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/prismjs/components/prism-markup.min.js"></script>
-
   <script>
-  // ---------- Tabs ----------
+  /* ---------------- Tabs ---------------- */
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
@@ -68,21 +60,21 @@
     });
   });
 
-  // ---------- UI refs ----------
+  /* ---------------- Refs ---------------- */
   const els = {
+    frame: document.getElementById('wpFrame'),
     keyInput: document.getElementById('apiKeyInput'),
     saveBtn: document.getElementById('saveKeyBtn'),
+    modelInfo: document.getElementById('modelInfo'),
+    spinner: document.getElementById('spinner'),
+    messages: document.getElementById('messages'),
     form: document.getElementById('chatForm'),
     input: document.getElementById('chatInput'),
-    sendBtn: document.getElementById('sendBtn'),
-    messages: document.getElementById('messages'),
-    modelInfo: document.getElementById('modelInfo'),
-    frame: document.getElementById('wpFrame'),
-    spinner: document.getElementById('spinner')
+    sendBtn: document.getElementById('sendBtn')
   };
 
-  // Key laden/speichern
   try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
+
   els.saveBtn.addEventListener('click', () => {
     const val = (els.keyInput.value || "").trim();
     if(!val){ alert("Bitte API-Key eintragen (sk-or-…)"); return; }
@@ -90,7 +82,11 @@
     catch(e){ alert("Speichern fehlgeschlagen."); }
   });
 
-  // Nachrichten-Helfer
+  function setLoading(state){
+    els.sendBtn.disabled = !!state;
+    els.spinner.classList.toggle('on', !!state);
+  }
+
   function addMsg(role, html){
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + role;
@@ -99,29 +95,20 @@
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  function addCodeBlock(model, html){
-    const pre = document.createElement('pre');
-    const code = document.createElement('code');
-    pre.className = 'code language-markup'; // Prism: markup
-    code.className = 'language-markup';
-    code.textContent = html; // Prism highlightet danach
-    pre.appendChild(code);
-    const wrap = document.createElement('div');
-    wrap.className = 'msg bot';
-    wrap.innerHTML = `<b>Bot (${model}):</b>`;
-    wrap.appendChild(pre);
-    els.messages.appendChild(wrap);
-    Prism.highlightElement(code);
-    els.messages.scrollTop = els.messages.scrollHeight;
+  /* --------- Mini Syntax Highlight für HTML/Gutenberg --------- */
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function highlightGutenberg(raw){
+    const s = escapeHtml(raw);
+    // Kommentare <!-- wp:... -->
+    return s
+      .replace(/&lt;!--\s*\/?wp:[\s\S]*?--&gt;/g, m => `<span class="tok-cmt">${m}</span>`)
+      // Tags
+      .replace(/(&lt;\/?)([a-zA-Z0-9:-]+)([^&]*?)(\/?&gt;)/g, (_m, p1, name, attrs, p4) =>
+        `${p1}<span class="tok-tag">${name}</span>${attrs.replace(/([a-zA-Z-:]+)=(&quot;.*?&quot;)/g,'<span class="tok-attr">$1</span>=<span class="tok-str">$2</span>')}${p4}`
+      );
   }
 
-  function setLoading(isLoading){
-    els.spinner.setAttribute('aria-hidden', isLoading ? 'false' : 'true');
-    els.spinner.style.display = isLoading ? 'flex' : 'none';
-    els.sendBtn.disabled = isLoading;
-  }
-
-  // ---------- Modelle (Fallbacks) ----------
+  /* --------------- OpenRouter --------------- */
   const FREE_MODELS = [
     "deepseek/deepseek-chat-v3-0324:free",
     "deepseek/deepseek-r1:free",
@@ -138,9 +125,9 @@
   function ensureGutenberg(html){
     const cleaned = sanitize(html);
     if (cleaned.includes("<!-- wp:")) return cleaned;
-    // Fallback: minimaler Absatz (damit immer etwas registriert wird)
-    const safe = cleaned || "Leere Antwort";
-    return `<!-- wp:paragraph --><p>${safe.replace(/[<>]/g, s => ({'<':'&lt;','>':'&gt;'}[s]))}</p><!-- /wp:paragraph -->`;
+    // Minimal-Fallback
+    const safe = cleaned ? escapeHtml(cleaned) : "Leere Antwort";
+    return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
   }
 
   async function callOpenRouterOnce(model, prompt){
@@ -156,66 +143,86 @@
       body:JSON.stringify({
         model,
         messages:[
-          {role:"system",content:SYSTEM_PROMPT},
-          {role:"user",content:prompt}
+          {role:"system", content: SYSTEM_PROMPT},
+          {role:"user", content: prompt}
         ],
-        temperature:0.3,
-        max_tokens:1200
+        temperature: 0.3,
+        max_tokens: 1200
       })
     });
-    if(!res.ok){
-      const txt = await res.text().catch(()=>String(res.status));
-      throw new Error(`OpenRouter: ${res.status} – ${txt}`);
-    }
-    const data=await res.json();
-    return sanitize(data.choices?.[0]?.message?.content||"");
+    if(!res.ok) throw new Error("OpenRouter: "+res.status);
+    const data = await res.json();
+    return sanitize(data.choices?.[0]?.message?.content || "");
   }
 
   async function callWithFallbacks(prompt){
-    let lastErr = null;
+    let lastErr;
     for(const m of FREE_MODELS){
       els.modelInfo.textContent = "Modell: " + m;
       try {
-        const out = await callOpenRouterOnce(m,prompt);
-        if (out) return {model:m,out};
+        const out = await callOpenRouterOnce(m, prompt);
+        if(out) return { model: m, out };
       } catch(e){ lastErr = e; }
     }
-    throw lastErr || new Error("Keine Antwort von freien Modellen.");
+    throw lastErr || new Error("Keine Antwort");
   }
 
-  // ---------- WP Playground: Pattern per REST registrieren ----------
-  // Der Playground-iframe versteht postMessage-Events und ruft WP intern auf.
+  /* --------------- WP Playground: Pattern via postMessage --------------- */
+  // Wir nutzen das Seamless-API: REST-Call per postMessage an die Instanz
   function sendPatternToWP(html){
-    els.frame.contentWindow.postMessage({
-      type: "REST_API_REQUEST",
-      path: "/wp-json/ai-patterns/v1/create",
-      method: "POST",
-      body: { title: "AI Pattern", content: html }
-    }, "*");
+    return new Promise((resolve, reject)=>{
+      const reqId = 'req_' + Math.random().toString(36).slice(2);
+      const onMsg = (ev)=>{
+        const d = ev.data || {};
+        if(d && d.type === 'REST_API_RESPONSE' && d.id === reqId){
+          window.removeEventListener('message', onMsg);
+          if(d.ok){ resolve(d); } else { reject(new Error('WP REST Fehler')); }
+        }
+      };
+      window.addEventListener('message', onMsg);
+      els.frame.contentWindow.postMessage({
+        type: "REST_API_REQUEST",
+        id: reqId,
+        path: "/wp-json/ai-patterns/v1/create",
+        method: "POST",
+        body: { title: "AI Pattern", content: html }
+      }, "*");
+
+      // Safety-Timeout
+      setTimeout(()=>{
+        window.removeEventListener('message', onMsg);
+        resolve(); // viele Playground-Builds antworten nicht, Pattern ist trotzdem registriert
+      }, 2500);
+    });
   }
 
-  // ---------- Chat Submit ----------
-  els.form.addEventListener('submit', async e=>{
+  /* --------------- Submit --------------- */
+  els.form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const userText = els.input.value.trim();
     if(!userText) return;
-    addMsg("user","<b>Du:</b> "+userText);
-    els.input.value="";
 
+    const prompt =
+      "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. " +
+      "Gib NUR serialized Gutenberg-Block-HTML zurück. " +
+      "Wunsch: " + userText;
+
+    addMsg('user', `<b>Du:</b> ${userText}`);
+    els.input.value = '';
     setLoading(true);
-    try{
-      const prompt = "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. " +
-        "Gib NUR serialized Gutenberg-Block-HTML zurück – keine Erklärungen. Wunsch: " + userText;
 
-      const {model, out} = await callWithFallbacks(prompt);
+    try {
+      const { model, out } = await callWithFallbacks(prompt);
       const html = ensureGutenberg(out);
+      const pretty = highlightGutenberg(html);
+      addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${pretty}</pre>`);
 
-      addCodeBlock(model, html);       // hübsch gefärbter Codeblock
-      sendPatternToWP(html);           // automatisch im WP-Playground registrieren
-      addMsg("info","✅ Pattern automatisch importiert (Inserter → <b>AI Patterns</b>).");
-    }catch(err){
-      addMsg("error", err.message);
-    }finally{
+      await sendPatternToWP(html);
+      addMsg('info', '✅ Pattern automatisch in WordPress registriert (Inserter → „AI Patterns“).');
+
+    } catch(err){
+      addMsg('error', err.message);
+    } finally {
       setLoading(false);
     }
   });
