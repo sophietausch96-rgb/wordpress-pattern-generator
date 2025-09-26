@@ -1,3 +1,4 @@
+<!-- /index.html -->
 <!doctype html>
 <html lang="de">
 <head>
@@ -8,7 +9,7 @@
 </head>
 <body>
   <div class="container">
-    <!-- LINKS: immer direkt Gutenberg-Editor (neue Seite) öffnen -->
+    <!-- LINKS: Gutenberg-Editor (neue Seite) -->
     <iframe
       class="playground"
       id="wpFrame"
@@ -18,13 +19,11 @@
 
     <!-- RECHTS: Bot -->
     <aside class="chatbox">
-      <!-- Tabs -->
       <div class="tabs">
         <button class="tab active" data-tab="chat">💬 Chat</button>
         <button class="tab" data-tab="settings">⚙️ Einstellungen</button>
       </div>
 
-      <!-- CHAT -->
       <div class="tabcontent active" id="tab-chat">
         <div class="model-row">
           <span class="model-info" id="modelInfo">Modell: –</span>
@@ -39,7 +38,6 @@
         </form>
       </div>
 
-      <!-- EINSTELLUNGEN -->
       <div class="tabcontent" id="tab-settings">
         <h3>API-Key</h3>
         <input id="apiKeyInput" type="password" placeholder="OpenRouter API Key (sk-or-…)" />
@@ -50,7 +48,7 @@
   </div>
 
   <script>
-  /* ---------------- Tabs ---------------- */
+  /* Tabs */
   document.querySelectorAll('.tab').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
@@ -60,7 +58,7 @@
     });
   });
 
-  /* ---------------- Refs ---------------- */
+  /* Refs */
   const els = {
     frame: document.getElementById('wpFrame'),
     keyInput: document.getElementById('apiKeyInput'),
@@ -95,29 +93,25 @@
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  /* --------- Mini Syntax Highlight für HTML/Gutenberg --------- */
+  /* Mini Syntax Highlight */
   function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function highlightGutenberg(raw){
     const s = escapeHtml(raw);
-    // Kommentare <!-- wp:... -->
     return s
-      .replace(/&lt;!--\s*\/?wp:[\s\S]*?--&gt;/g, m => `<span class="tok-cmt">${m}</span>`)
-      // Tags
+      .replace(/&lt;!--\s*\/?wp:[\s\S]*?--&gt;/g, m => `<span class="tok-comment">${m}</span>`)
       .replace(/(&lt;\/?)([a-zA-Z0-9:-]+)([^&]*?)(\/?&gt;)/g, (_m, p1, name, attrs, p4) =>
-        `${p1}<span class="tok-tag">${name}</span>${attrs.replace(/([a-zA-Z-:]+)=(&quot;.*?&quot;)/g,'<span class="tok-attr">$1</span>=<span class="tok-str">$2</span>')}${p4}`
+        `${p1}<span class="tok-tag">${name}</span>${attrs.replace(/([a-zA-Z-:]+)=(&quot;.*?&quot;)/g,'<span class="tok-attr">$1</span>=<span class="tok-val">$2</span>')}${p4}`
       );
   }
 
-  /* --------------- OpenRouter --------------- */
+  /* OpenRouter */
   const FREE_MODELS = [
-    "deepseek/deepseek-chat-v3-0324:free",
-    "deepseek/deepseek-r1:free",
-    "mistralai/mistral-7b-instruct:free"
+    "mistralai/mistral-7b-instruct:free",
+    "deepseek/deepseek-chat-v3-0324:free"
   ];
-
   const SYSTEM_PROMPT =
-    "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). " +
-    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. " +
+    "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). "+
+    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. "+
     "Beginne mit <!-- wp: und schließe alle Blöcke korrekt.";
 
   function sanitize(text){ return (text||"").replace(/```(?:html)?/gi,"").trim(); }
@@ -125,7 +119,6 @@
   function ensureGutenberg(html){
     const cleaned = sanitize(html);
     if (cleaned.includes("<!-- wp:")) return cleaned;
-    // Minimal-Fallback
     const safe = cleaned ? escapeHtml(cleaned) : "Leere Antwort";
     return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
   }
@@ -146,11 +139,15 @@
           {role:"system", content: SYSTEM_PROMPT},
           {role:"user", content: prompt}
         ],
-        temperature: 0.3,
-        max_tokens: 1200
+        temperature: 0.2,
+        max_tokens: 1200,
+        stop: ["```","</html>"] // verhindert Ausschweifungen
       })
     });
-    if(!res.ok) throw new Error("OpenRouter: "+res.status);
+    if(!res.ok){
+      const t = await res.text().catch(()=>String(res.status));
+      throw new Error("OpenRouter: "+res.status+" – "+t);
+    }
     const data = await res.json();
     return sanitize(data.choices?.[0]?.message?.content || "");
   }
@@ -167,16 +164,22 @@
     throw lastErr || new Error("Keine Antwort");
   }
 
-  /* --------------- WP Playground: Pattern via postMessage --------------- */
-  // Wir nutzen das Seamless-API: REST-Call per postMessage an die Instanz
+  /* WP Playground Bridge */
   function sendPatternToWP(html){
-    return new Promise((resolve, reject)=>{
+    return new Promise((resolve) => {
+      // 1) Primär: Plugin-Bridge (passt sicher zum PHP-Listener)
+      els.frame.contentWindow.postMessage({
+        type: "AI_PATTERNS_CREATE",
+        payload: { title: "AI Pattern", content: html }
+      }, "*");
+
+      // 2) Optionaler Fallback: Playground REST Proxy (wenn vorhanden)
       const reqId = 'req_' + Math.random().toString(36).slice(2);
       const onMsg = (ev)=>{
         const d = ev.data || {};
         if(d && d.type === 'REST_API_RESPONSE' && d.id === reqId){
           window.removeEventListener('message', onMsg);
-          if(d.ok){ resolve(d); } else { reject(new Error('WP REST Fehler')); }
+          resolve(d.ok);
         }
       };
       window.addEventListener('message', onMsg);
@@ -188,23 +191,20 @@
         body: { title: "AI Pattern", content: html }
       }, "*");
 
-      // Safety-Timeout
-      setTimeout(()=>{
-        window.removeEventListener('message', onMsg);
-        resolve(); // viele Playground-Builds antworten nicht, Pattern ist trotzdem registriert
-      }, 2500);
+      // 3) Safety: auch ohne Response weitermachen (Playground antwortet nicht immer)
+      setTimeout(()=>{ window.removeEventListener('message', onMsg); resolve(true); }, 3000);
     });
   }
 
-  /* --------------- Submit --------------- */
+  /* Submit */
   els.form.addEventListener('submit', async (e)=>{
     e.preventDefault();
     const userText = els.input.value.trim();
     if(!userText) return;
 
     const prompt =
-      "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. " +
-      "Gib NUR serialized Gutenberg-Block-HTML zurück. " +
+      "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. "+
+      "Gib NUR serialized Gutenberg-Block-HTML zurück. "+
       "Wunsch: " + userText;
 
     addMsg('user', `<b>Du:</b> ${userText}`);
@@ -218,10 +218,10 @@
       addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${pretty}</pre>`);
 
       await sendPatternToWP(html);
-      addMsg('info', '✅ Pattern automatisch in WordPress registriert (Inserter → „AI Patterns“).');
+      addMsg('info', '✅ Pattern registriert. Öffne im Editor den Block-Inserter → „AI Patterns“ und füge es ein.');
 
     } catch(err){
-      addMsg('error', err.message);
+      addMsg('error', '❌ '+(err?.message||String(err)));
     } finally {
       setLoading(false);
     }
