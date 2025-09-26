@@ -1,21 +1,19 @@
-<!-- /index.html -->
 <!doctype html>
 <html lang="de">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>WP Playground + Bot (Auto-Pattern)</title>
+  <title>WP Pattern Generator</title>
   <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
   <div class="container">
-    <!-- LINKS: Gutenberg-Editor (neue Seite) -->
+    <!-- LINKS: WP Playground (neue Seite) -->
     <iframe
-      class="playground"
       id="wpFrame"
+      class="playground"
       src="https://playground.wordpress.net/?mode=seamless&blueprint-url=./blueprint.json&start_url=%2Fwp-admin%2Fpost-new.php%3Fpost_type%3Dpage"
-      title="WordPress Playground">
-    </iframe>
+      title="WordPress Playground"></iframe>
 
     <!-- RECHTS: Bot -->
     <aside class="chatbox">
@@ -32,8 +30,8 @@
 
         <div id="messages" class="messages"></div>
 
-        <form id="chatForm" class="input-row" autocomplete="off">
-          <input id="chatInput" placeholder="Beschreibe ein Pattern … (nur Core-Blöcke, NUR HTML ausgeben)" />
+        <form id="chatForm" class="input-row">
+          <input id="chatInput" placeholder="Beschreibe dein Pattern …" />
           <button id="sendBtn" type="submit">Senden</button>
         </form>
       </div>
@@ -42,190 +40,89 @@
         <h3>API-Key</h3>
         <input id="apiKeyInput" type="password" placeholder="OpenRouter API Key (sk-or-…)" />
         <button id="saveKeyBtn" type="button">Speichern</button>
-        <p class="hint">Der Key wird nur lokal im Browser (localStorage) gespeichert.</p>
       </div>
     </aside>
   </div>
 
-  <script>
-  /* Tabs */
-  document.querySelectorAll('.tab').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      document.querySelectorAll('.tab').forEach(b=>b.classList.remove('active'));
-      document.querySelectorAll('.tabcontent').forEach(tc=>tc.classList.remove('active'));
-      btn.classList.add('active');
-      document.getElementById('tab-'+btn.dataset.tab).classList.add('active');
-    });
+<script>
+const els = {
+  frame: document.getElementById('wpFrame'),
+  messages: document.getElementById('messages'),
+  form: document.getElementById('chatForm'),
+  input: document.getElementById('chatInput'),
+  sendBtn: document.getElementById('sendBtn'),
+  modelInfo: document.getElementById('modelInfo'),
+  spinner: document.getElementById('spinner'),
+  apiKeyInput: document.getElementById('apiKeyInput'),
+  saveBtn: document.getElementById('saveKeyBtn')
+};
+
+try { els.apiKeyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e){}
+
+els.saveBtn.addEventListener('click', () => {
+  localStorage.setItem("openrouter_key", els.apiKeyInput.value.trim());
+  alert("API-Key gespeichert!");
+});
+
+function addMsg(role, html){
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.innerHTML = html;
+  els.messages.appendChild(div);
+  els.messages.scrollTop = els.messages.scrollHeight;
+}
+
+function setLoading(state){
+  els.sendBtn.disabled = !!state;
+  els.spinner.classList.toggle("on", !!state);
+}
+
+async function callLLM(prompt){
+  const key = localStorage.getItem("openrouter_key") || "";
+  if(!key) throw new Error("API-Key fehlt");
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method:"POST",
+    headers:{
+      "Authorization":"Bearer "+key,
+      "Content-Type":"application/json"
+    },
+    body: JSON.stringify({
+      model: "mistralai/mistral-7b-instruct:free",
+      messages:[
+        {role:"system", content:"Du gibst ausschließlich gültiges Gutenberg-HTML zurück. Keine Erklärungen."},
+        {role:"user", content:prompt}
+      ]
+    })
   });
+  const data = await res.json();
+  return (data.choices?.[0]?.message?.content || "").replace(/```/g,"").trim();
+}
 
-  /* Refs */
-  const els = {
-    frame: document.getElementById('wpFrame'),
-    keyInput: document.getElementById('apiKeyInput'),
-    saveBtn: document.getElementById('saveKeyBtn'),
-    modelInfo: document.getElementById('modelInfo'),
-    spinner: document.getElementById('spinner'),
-    messages: document.getElementById('messages'),
-    form: document.getElementById('chatForm'),
-    input: document.getElementById('chatInput'),
-    sendBtn: document.getElementById('sendBtn')
-  };
+function sendToWP(html){
+  els.frame.contentWindow.postMessage({
+    type:"AI_PATTERNS_CREATE",
+    payload:{ title:"AI Pattern", content: html }
+  }, "*");
+}
 
-  try { els.keyInput.value = localStorage.getItem("openrouter_key") || ""; } catch(e) {}
-
-  els.saveBtn.addEventListener('click', () => {
-    const val = (els.keyInput.value || "").trim();
-    if(!val){ alert("Bitte API-Key eintragen (sk-or-…)"); return; }
-    try { localStorage.setItem("openrouter_key", val); alert("API-Key gespeichert!"); }
-    catch(e){ alert("Speichern fehlgeschlagen."); }
-  });
-
-  function setLoading(state){
-    els.sendBtn.disabled = !!state;
-    els.spinner.classList.toggle('on', !!state);
+els.form.addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const userText = els.input.value.trim();
+  if(!userText) return;
+  addMsg("user", "<b>Du:</b> "+userText);
+  els.input.value = "";
+  setLoading(true);
+  try {
+    const html = await callLLM("Erzeuge ein modernes Gutenberg-Pattern: "+userText);
+    addMsg("bot", "<b>Bot:</b><pre class='code'>"+html+"</pre>");
+    sendToWP(html);
+    addMsg("info", "✅ Pattern wurde an WordPress gesendet. Schau links im Inserter unter 'AI Patterns'.");
+  } catch(err){
+    addMsg("error", "❌ "+err.message);
+  } finally {
+    setLoading(false);
   }
-
-  function addMsg(role, html){
-    const wrap = document.createElement('div');
-    wrap.className = 'msg ' + role;
-    wrap.innerHTML = html;
-    els.messages.appendChild(wrap);
-    els.messages.scrollTop = els.messages.scrollHeight;
-  }
-
-  /* Mini Syntax Highlight */
-  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function highlightGutenberg(raw){
-    const s = escapeHtml(raw);
-    return s
-      .replace(/&lt;!--\s*\/?wp:[\s\S]*?--&gt;/g, m => `<span class="tok-comment">${m}</span>`)
-      .replace(/(&lt;\/?)([a-zA-Z0-9:-]+)([^&]*?)(\/?&gt;)/g, (_m, p1, name, attrs, p4) =>
-        `${p1}<span class="tok-tag">${name}</span>${attrs.replace(/([a-zA-Z-:]+)=(&quot;.*?&quot;)/g,'<span class="tok-attr">$1</span>=<span class="tok-val">$2</span>')}${p4}`
-      );
-  }
-
-  /* OpenRouter */
-  const FREE_MODELS = [
-    "mistralai/mistral-7b-instruct:free",
-    "deepseek/deepseek-chat-v3-0324:free"
-  ];
-  const SYSTEM_PROMPT =
-    "Du erzeugst AUSSCHLIESSLICH gültiges Gutenberg-Block-HTML (serialized blocks). "+
-    "Keine Erklärungen, kein Markdown, keine Codefences. Nur Core-Blöcke. "+
-    "Beginne mit <!-- wp: und schließe alle Blöcke korrekt.";
-
-  function sanitize(text){ return (text||"").replace(/```(?:html)?/gi,"").trim(); }
-
-  function ensureGutenberg(html){
-    const cleaned = sanitize(html);
-    if (cleaned.includes("<!-- wp:")) return cleaned;
-    const safe = cleaned ? escapeHtml(cleaned) : "Leere Antwort";
-    return `<!-- wp:paragraph --><p>${safe}</p><!-- /wp:paragraph -->`;
-  }
-
-  async function callOpenRouterOnce(model, prompt){
-    const key = (localStorage.getItem('openrouter_key')||'').trim();
-    if(!key) throw new Error("API-Key fehlt");
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions",{
-      method:"POST",
-      headers:{
-        "Authorization":"Bearer "+key,
-        "Content-Type":"application/json",
-        "X-Title":"WP Pattern Generator"
-      },
-      body:JSON.stringify({
-        model,
-        messages:[
-          {role:"system", content: SYSTEM_PROMPT},
-          {role:"user", content: prompt}
-        ],
-        temperature: 0.2,
-        max_tokens: 1200,
-        stop: ["```","</html>"] // verhindert Ausschweifungen
-      })
-    });
-    if(!res.ok){
-      const t = await res.text().catch(()=>String(res.status));
-      throw new Error("OpenRouter: "+res.status+" – "+t);
-    }
-    const data = await res.json();
-    return sanitize(data.choices?.[0]?.message?.content || "");
-  }
-
-  async function callWithFallbacks(prompt){
-    let lastErr;
-    for(const m of FREE_MODELS){
-      els.modelInfo.textContent = "Modell: " + m;
-      try {
-        const out = await callOpenRouterOnce(m, prompt);
-        if(out) return { model: m, out };
-      } catch(e){ lastErr = e; }
-    }
-    throw lastErr || new Error("Keine Antwort");
-  }
-
-  /* WP Playground Bridge */
-  function sendPatternToWP(html){
-    return new Promise((resolve) => {
-      // 1) Primär: Plugin-Bridge (passt sicher zum PHP-Listener)
-      els.frame.contentWindow.postMessage({
-        type: "AI_PATTERNS_CREATE",
-        payload: { title: "AI Pattern", content: html }
-      }, "*");
-
-      // 2) Optionaler Fallback: Playground REST Proxy (wenn vorhanden)
-      const reqId = 'req_' + Math.random().toString(36).slice(2);
-      const onMsg = (ev)=>{
-        const d = ev.data || {};
-        if(d && d.type === 'REST_API_RESPONSE' && d.id === reqId){
-          window.removeEventListener('message', onMsg);
-          resolve(d.ok);
-        }
-      };
-      window.addEventListener('message', onMsg);
-      els.frame.contentWindow.postMessage({
-        type: "REST_API_REQUEST",
-        id: reqId,
-        path: "/wp-json/ai-patterns/v1/create",
-        method: "POST",
-        body: { title: "AI Pattern", content: html }
-      }, "*");
-
-      // 3) Safety: auch ohne Response weitermachen (Playground antwortet nicht immer)
-      setTimeout(()=>{ window.removeEventListener('message', onMsg); resolve(true); }, 3000);
-    });
-  }
-
-  /* Submit */
-  els.form.addEventListener('submit', async (e)=>{
-    e.preventDefault();
-    const userText = els.input.value.trim();
-    if(!userText) return;
-
-    const prompt =
-      "Erzeuge ein responsives Gutenberg-Pattern. Nutze NUR Core-Blöcke. "+
-      "Gib NUR serialized Gutenberg-Block-HTML zurück. "+
-      "Wunsch: " + userText;
-
-    addMsg('user', `<b>Du:</b> ${userText}`);
-    els.input.value = '';
-    setLoading(true);
-
-    try {
-      const { model, out } = await callWithFallbacks(prompt);
-      const html = ensureGutenberg(out);
-      const pretty = highlightGutenberg(html);
-      addMsg('bot', `<b>Bot (${model}):</b><pre class="code">${pretty}</pre>`);
-
-      await sendPatternToWP(html);
-      addMsg('info', '✅ Pattern registriert. Öffne im Editor den Block-Inserter → „AI Patterns“ und füge es ein.');
-
-    } catch(err){
-      addMsg('error', '❌ '+(err?.message||String(err)));
-    } finally {
-      setLoading(false);
-    }
-  });
-  </script>
+});
+</script>
 </body>
 </html>
