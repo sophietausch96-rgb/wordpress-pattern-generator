@@ -1,4 +1,4 @@
-/* Global Dark Theme (Bot rechts) + neutrales WP links */
+/* /style.css */
 :root {
   --bg: #0f1216;
   --panel: #141922;
@@ -12,13 +12,11 @@
   --success: #10b981;
 }
 
-/* Layout */
 html, body { margin: 0; padding: 0; height: 100%; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
 .container { display: flex; height: 100vh; width: 100vw; }
 
 .playground { flex: 1; border: none; background: #fff; }
 
-/* Chat Sidebar (dark) */
 .chatbox {
   width: 420px; min-width: 340px; max-width: 520px;
   display: flex; flex-direction: column;
@@ -29,45 +27,29 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: system-ui, -apple
 
 /* Tabs */
 .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--panel); }
-.tab {
-  flex: 1; padding: 10px 12px; border: 0; cursor: pointer;
-  background: transparent; color: var(--muted); font-size: 13px;
-}
+.tab { flex: 1; padding: 10px 12px; border: 0; cursor: pointer; background: transparent; color: var(--muted); font-size: 13px; }
 .tab.active { color: var(--text); background: var(--panel-2); }
 .tabcontent { display: none; flex: 1; flex-direction: column; }
 .tabcontent.active { display: flex; }
 
 #tab-settings { padding: 12px; }
-#tab-settings input {
-  width: 100%; padding: 10px; margin-bottom: 8px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: #0b0f14; color: var(--text);
-}
-#tab-settings button {
-  padding: 10px 12px; background: var(--primary); color: #fff;
-  border: 0; border-radius: 8px; cursor: pointer;
-}
+#tab-settings input { width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px; background: #0b0f14; color: var(--text); }
+#tab-settings button { padding: 10px 12px; background: var(--primary); color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
 .hint { color: var(--muted); font-size: 12px; }
 
-/* Info über Modell */
+/* Info */
 .model-info { padding: 10px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 
 /* Messages */
-.messages {
-  flex: 1; overflow-y: auto; padding: 12px;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.msg {
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: 10px; padding: 10px 12px; font-size: 14px; color: var(--text);
-}
+.messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.msg { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; color: var(--text); }
 .msg.user { background: #0b1220; border-color: #11203b; }
 .msg.bot  { background: var(--panel); }
 .msg.warn { background: #241a04; border-color: #3a2a0b; color: #f6d48b; }
 .msg.error{ background: #220e11; border-color: #3a171c; color: #ffb4b4; }
 .msg.info { background: #0c1c16; border-color: #183d30; color: #9fe8c6; }
 
-/* Code „Editor“ mit leichter Farbhervorhebung */
+/* Code */
 pre.code {
   background: #0b0f14; color: #e7edf5;
   font-family: "Fira Code", Menlo, Monaco, Consolas, monospace;
@@ -76,39 +58,21 @@ pre.code {
   overflow: auto; white-space: pre; margin-top: 8px; max-height: 320px;
   border: 1px solid var(--border);
 }
-.tok-comment { color: #6b7280; }
-.tok-tag     { color: #60a5fa; }
-.tok-attr    { color: #f59e0b; }
-.tok-val     { color: #34d399; }
-.tok-rest    { color: #93c5fd; }
+/* akzeptiere beide Klassennamen (alt/neu) */
+.tok-comment, .tok-cmt { color: #6b7280; }
+.tok-tag                 { color: #60a5fa; }
+.tok-attr                { color: #f59e0b; }
+.tok-val, .tok-str       { color: #34d399; }
 
 /* Input Row */
-.input-row {
-  display: grid; grid-template-columns: 1fr auto; gap: 8px;
-  padding: 10px 12px; border-top: 1px solid var(--border);
-  background: var(--panel-2);
-}
-.input-row input {
-  padding: 10px; border: 1px solid var(--border); border-radius: 8px;
-  background: #0b0f14; color: var(--text); font-size: 14px;
-}
-.input-row button {
-  padding: 10px 14px; border: 0; background: var(--primary);
-  color: #fff; border-radius: 8px; cursor: pointer;
-}
+.input-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--panel-2); }
+.input-row input { padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #0b0f14; color: var(--text); font-size: 14px; }
+.input-row button { padding: 10px 14px; border: 0; background: var(--primary); color: #fff; border-radius: 8px; cursor: pointer; }
 .input-row button:disabled { opacity: .6; cursor: default; }
-
-/* Copy button */
-.copy-row { display: flex; justify-content: flex-end; padding: 0 12px 6px; }
-.copy-row button { padding: 6px 10px; border: 0; background: var(--accent); color: #00131c; border-radius: 6px; cursor: pointer; }
 
 /* Spinner */
 .spinner-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--muted); }
-.spinner {
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 2px solid #2a3545; border-top-color: var(--accent);
-  animation: spin .8s linear infinite;
-}
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #2a3545; border-top-color: var(--accent); animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg);} }
 
 /* Mobil */
