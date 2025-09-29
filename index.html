@@ -116,7 +116,7 @@ els.form.addEventListener('submit', async (e)=>{
     const html = await callLLM("Erzeuge ein modernes Gutenberg-Pattern: "+userText);
     addMsg("bot", "<b>Bot:</b><pre class='code'>"+html+"</pre>");
     sendToWP(html);
-    addMsg("info", "✅ Pattern wurde an WordPress gesendet. Schau links im Inserter unter 'AI Patterns'.");
+    addMsg("info", "✅'.");
   } catch(err){
     addMsg("error", "❌ "+err.message);
   } finally {
